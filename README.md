@@ -17,7 +17,8 @@ They are pulled from `mirror.gcr.io` and `quay.io`, which do not rate-limit
 anonymous pulls the way Docker Hub does.
 
 This folder is a git submodule of AgenticHarvest (`examples/systems`), backed by the
-`agenticharvest-systems` repository, and it also works on its own.
+[`agenticharvest-systems`](https://github.com/aster-test-generation/agenticharvest-systems)
+repository, and it also works on its own.
 
 ## Quick start: nothing installed but Podman or Docker
 
@@ -45,7 +46,9 @@ Python, uv, and AgenticHarvest all run inside a container.
    cd agenticharvest-systems
    ```
 
-   Cloned on its own, `run.sh` fetches AgenticHarvest into `./.agenticharvest` on first use.
+   Cloned on its own, `run.sh` fetches AgenticHarvest into `./.agenticharvest` on
+   first use and reuses it afterward. Delete that folder to pick up a newer
+   AgenticHarvest.
 
 3. **Run an example:**
 
@@ -77,7 +80,8 @@ the compose network.
 ### Where the output goes
 
 Each example writes its event logs, the miner's output (`process_model.json`),
-and the agent's prompt to **`out/<example>/` next to the `run.sh` you ran**.
+and the agent's prompt to **`out/<example>/` in the folder you ran `run.sh`
+from** (an example's own `run.sh` uses its own folder).
 The runner writes into that folder directly, so they are ordinary files on
 your machine:
 
@@ -101,8 +105,8 @@ export API_BASE=https://your-endpoint/v1 API_KEY=your-key MODEL=your-model
 ./run.sh hire_to_onboard --agent
 ```
 
-You can also put those three lines in a `.env` file next to `run.sh` or in the
-AgenticHarvest root. Values already in your environment win.
+You can also put those three lines in a `.env` file in the folder you run
+`run.sh` from, or in the AgenticHarvest repo root. Values already in your environment win.
 
 ### Look at the apps
 
@@ -183,8 +187,11 @@ AGENTICHARVEST_WEB_HRIS_AUTH=bearer               # bearer | header | oauth2-pas
 AGENTICHARVEST_WEB_HRIS_TOKEN=…
 ```
 
-The full list of settings is in AgenticHarvest's `src/agenticharvest/domains/web/config.py`
-and in the web domain section of its README. Point it at a sandbox or test
+The full list of settings is in AgenticHarvest's
+[`src/agenticharvest/domains/web/config.py`](https://github.com/IBM/agenticharvest/blob/main/src/agenticharvest/domains/web/config.py)
+and in the
+[web apps section](https://github.com/IBM/agenticharvest#web-apps-five-tools-over-any-described-api)
+of its README. Point it at a sandbox or test
 tenant first: write tools are gated, but a confirmed write is a real write.
 
 ## Troubleshooting
@@ -193,7 +200,9 @@ tenant first: write tools are gated, but a confirmed write is a real write.
 |---|---|
 | `Neither Podman nor Docker is installed` | Install one (step 1 above). |
 | `podman is installed but not running` | `podman machine start` (macOS/Windows). |
-| `Cannot find the agenticharvest source` / clone fails | The public repo at `https://github.com/IBM/agenticharvest.git` could not be reached; check your network or proxy. Set `AGENTICHARVEST_REPO` to another URL, or `AGENTICHARVEST_REF` to another branch. |
+| `git is needed to fetch agenticharvest.` | Install git. Cloned on its own, this repo downloads AgenticHarvest into `.agenticharvest` on the first run. |
+| `fatal: destination path '…/.agenticharvest' already exists` | An earlier fetch was interrupted. Delete the `.agenticharvest` folder and run again. |
+| `Remote branch … not found in upstream origin` | `AGENTICHARVEST_REF` names a branch or tag that does not exist. Unset it to use `main`. |
 | `toomanyrequests` / HTTP 429 while pulling | A registry is rate-limiting. The pinned images avoid Docker Hub; check you are using this `compose.yaml`. |
 | `no image found … for architecture` | An image without your CPU's build. All pinned images publish `amd64` and `arm64`. |
 | `… is not answering` | An app is still starting (Odoo's first start takes minutes). Run `podman compose -f compose.yaml logs -f odoo`, then try again. |
