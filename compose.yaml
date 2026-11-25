@@ -1,0 +1,136 @@
+#
+# Copyright IBM Corp. 2026
+# SPDX-License-Identifier: Apache-2.0
+#
+
+# The live systems the examples run against. Every image is a real, unmodified
+# open-source product, pinned to an exact version and published for both amd64
+# and arm64 on registries that do not rate-limit anonymous pulls.
+#
+#   directus   a data platform; serves a live OpenAPI spec and an audit log  :8055
+#   keycloak   an identity and access server (the official Admin REST API)   :8080
+#   odoo       an HR / ERP suite, with its JSON-2 external API               :8069
+#
+# With only Podman or Docker installed, run.sh / run.ps1 does everything:
+#
+#   ./run.sh hire_to_onboard            (from this folder)
+#
+# Or by hand, with Python and uv, from the repo root:
+#
+#   podman compose -f examples/systems/compose.yaml up -d
+#   uv run python examples/systems/setup.py
+#
+# The "runner" service (profile: runner) is AgenticHarvest itself in a container; it
+# talks to the apps over the compose network, so it needs no ports.
+#
+# The credentials below are for a local, throwaway stack only. See README.md.
+
+name: agenticharvest-systems
+
+services:
+  directus:
+    image: mirror.gcr.io/directus/directus:11.17.4
+    ports:
+      - "127.0.0.1:8055:8055"
+    environment:
+      SECRET: "agenticharvest-local-secret-not-for-production"
+      ADMIN_EMAIL: "admin@example.com"
+      ADMIN_PASSWORD: "agenticharvest-admin"
+      DB_CLIENT: "sqlite3"
+      DB_FILENAME: "/directus/database/data.db"
+      WEBSOCKETS_ENABLED: "false"
+      TELEMETRY: "false"
+    volumes:
+      - directus-data:/directus/database
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8055/server/health"]
+      interval: 5s
+      retries: 30
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.7
+    command: ["start-dev"]
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: "admin"
+      KC_BOOTSTRAP_ADMIN_PASSWORD: "agenticharvest-admin"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+
+  odoo-db:
+    image: mirror.gcr.io/library/postgres:16
+    environment:
+      POSTGRES_USER: "odoo"
+      POSTGRES_PASSWORD: "odoo"
+      POSTGRES_DB: "postgres"
+    volumes:
+      - odoo-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odoo"]
+      interval: 5s
+      retries: 30
+
+  odoo:
+    image: mirror.gcr.io/library/odoo:19.0
+    depends_on:
+      odoo-db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8069:8069"
+    environment:
+      HOST: "odoo-db"
+      USER: "odoo"
+      PASSWORD: "odoo"
+    # Initialize the "agenticharvest" database with the Employees and Recruitment apps
+    # on first start, then serve only that database.
+    command:
+      - "--database=agenticharvest"
+      - "--db-filter=^agenticharvest$"
+      - "--init=hr,hr_recruitment"
+      - "--without-demo=all"
+    volumes:
+      - odoo-data:/var/lib/odoo
+
+  runner:
+    profiles: ["runner"]
+    build:
+      # The agenticharvest repo root, which holds the source this image installs.
+      context: ${AGENTICHARVEST_ROOT:-../..}
+      dockerfile: examples/systems/runner/Dockerfile
+    image: localhost/agenticharvest-runner:latest
+    depends_on:
+      directus:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      odoo:
+        condition: service_started
+    environment:
+      # The apps, by their service names on the compose network.
+      DIRECTUS_URL: "http://directus:8055"
+      KEYCLOAK_URL: "http://keycloak:8080"
+      ODOO_URL: "http://odoo:8069"
+      # Its own Directus user, so its token and the host's never collide.
+      DIRECTUS_API_USER: "agenticharvest-runner@example.com"
+      # The host folder mounted at /state/out, so output paths print as the
+      # user sees them.
+      AGENTICHARVEST_HOST_OUT: "${AGENTICHARVEST_OUT:-./out}"
+      # The agent stages read an OpenAI-compatible endpoint from these.
+      API_BASE: "${API_BASE:-}"
+      API_KEY: "${API_KEY:-}"
+      MODEL: "${MODEL:-}"
+    volumes:
+      - runner-state:/state
+      # The examples' output (event logs, mined models, prompts) lands in a
+      # folder on the host: ./out next to the run.sh you ran, by default.
+      - ${AGENTICHARVEST_OUT:-./out}:/state/out
+
+volumes:
+  directus-data:
+  keycloak-data:
+  odoo-db-data:
+  odoo-data:
+  # The runner's .env and downloaded API descriptions. Kept apart from the
+  # host's .env, which names the apps by their host ports instead.
+  runner-state:
